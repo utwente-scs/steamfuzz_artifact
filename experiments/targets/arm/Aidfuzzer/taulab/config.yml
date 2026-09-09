@@ -1,0 +1,45 @@
+board:
+  init_nsvtor: 0x8003000
+
+interrupt:
+  mode: fuzzed
+  trigger:
+    on-infinite-sleep: true
+    interval: 1000
+
+memory_maps:
+  - name: mmio
+    address: 0x40000000
+    size: 0x20000000
+    type: mmio
+  - name: ITM_DWT_BPU
+    address: 0xe0000000
+    size: 0x3000
+    type: mmio
+  - name: CTI
+    address: 0xe0042000
+    size: 0x1000
+    type: mmio
+  - name: ram3
+    address: 0x8000000
+    size: 0x3000
+    type: ram
+  - name: ram2
+    address: 0x1fff0000
+    size: 0x10000
+    type: ram
+  - name: ram
+    address: 0x20000000
+    size: 0x100000
+    type: ram
+  - name: text
+    address: 0x8003000
+    permission:
+      executable: true
+    size: 0x1bc00
+    file:
+      path: fw_pipxtreme.bin
+    type: ram
+
+symbols:
+  - fw_pipxtreme.elf

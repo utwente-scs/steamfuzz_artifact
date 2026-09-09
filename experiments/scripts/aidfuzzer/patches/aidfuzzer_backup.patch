@@ -1,0 +1,132 @@
+diff --git a/framework/header/fuzzer.h b/framework/header/fuzzer.h
+index 9e4cced0d..2d450ae8e 100755
+--- a/framework/header/fuzzer.h
++++ b/framework/header/fuzzer.h
+@@ -178,6 +178,9 @@ typedef struct _EXIT_INFO
+         u32 exit_mmio_addr;
+         u32 mmio_len;
+     } stream_info;
++    u64 executed_bbls;
++    u64 mmio_reads;
++    u64 injected_irqs;
+ } __attribute__((packed)) EXIT_INFO;
+ 
+ 
+diff --git a/framework/src/fuzzer/iofuzzer.cpp b/framework/src/fuzzer/iofuzzer.cpp
+index ff02529d1..131fe0c8e 100644
+--- a/framework/src/fuzzer/iofuzzer.cpp
++++ b/framework/src/fuzzer/iofuzzer.cpp
+@@ -716,6 +716,10 @@ void fuzz_runonce(FuzzState *state)
+     {
+       printf("pc %x queue %x not found stream %x\n",exit_info.exit_pc,q->cksum,exit_info.stream_info.exit_stream_id);
+     }
++    printf("  BBs executed: %lu  IRQs injected: %lu  MMIO reads: %lu\n",
++           (unsigned long)exit_info.executed_bbls,
++           (unsigned long)exit_info.injected_irqs,
++           (unsigned long)exit_info.mmio_reads);
+     update_exit_info(state,&exit_info);
+     if(f)
+       fprintf(f,"%lu %d\n",q->create_time,state->total_unique_bbls);
+diff --git a/framework/src/simulator/irq.cpp b/framework/src/simulator/irq.cpp
+index 1fe1b3d77..bfb7a22f3 100755
+--- a/framework/src/simulator/irq.cpp
++++ b/framework/src/simulator/irq.cpp
+@@ -21,6 +21,7 @@ IRQ_N_MODEL* models[MAX_NVIC_IRQ];
+ 
+ vector<irq_val> enabled_irqs;
+ uint64_t idle_count = 0;
++uint64_t fuzzer_injected_irqs = 0;
+ 
+ map<irq_val,uint32_t> snapshot_enabled_irq;
+ 
+@@ -310,6 +311,7 @@ void irq_on_mem_access(int irq,hw_addr addr)
+         reset_irq_mem_access(state);
+         if(insert_irq) 
+         {
++            fuzzer_injected_irqs++;
+             #ifdef DBG
+             fprintf(flog,"%d->insert mem access irq %d\n",run_index,irq);
+             #endif
+@@ -350,6 +352,7 @@ void irq_on_idel(int skip_count)
+         
+         if(insert_irq)
+         {
++            fuzzer_injected_irqs++;
+             reset_irq_mem_access(state);
+             #ifdef DBG
+         
+diff --git a/framework/src/simulator/irq.h b/framework/src/simulator/irq.h
+index f96cca8df..4e844f6fa 100755
+--- a/framework/src/simulator/irq.h
++++ b/framework/src/simulator/irq.h
+@@ -51,4 +51,6 @@ IRQ_N_STATE *get_void_state();
+ void add_memory_access_watchpoint(int irq, uint32_t addr, hw_addr isr);
+ void add_unsolved_func_ptr(int irq, uint32_t addr, hw_addr isr);
+ void add_dependency_func_ptr(int irq,uint32_t addr, hw_addr isr);
++
++extern uint64_t fuzzer_injected_irqs;
+ #endif
+\ No newline at end of file
+diff --git a/framework/src/simulator/simulator.cpp b/framework/src/simulator/simulator.cpp
+index 0ed6e3159..cc90073ac 100644
+--- a/framework/src/simulator/simulator.cpp
++++ b/framework/src/simulator/simulator.cpp
+@@ -53,6 +53,7 @@ FILE *f_crash_log;
+ FILE *f_irq_log;
+ 
+ uint64_t nommio_executed_bbls;
++uint64_t total_executed_bbls;
+ uint64_t max_bbl_exec;
+ uint64_t infinite_loop_exec;
+ uint64_t mmio_times;
+@@ -93,6 +94,9 @@ CMD_INFO exit_with_code_get_cmd()
+     #endif
+ 
+     exit_info.unique_bbls = total_unique_bbls.size();
++    exit_info.executed_bbls = total_executed_bbls;
++    exit_info.mmio_reads = mmio_times;
++    exit_info.injected_irqs = fuzzer_injected_irqs;
+     write(fd_to_fuzzer , &exit_info,sizeof(EXIT_INFO));   
+     do
+     {
+@@ -130,8 +134,10 @@ void start_new()
+ {
+     arm_restore_snapshot(new_snap);
+     nommio_executed_bbls = 0;
++    total_executed_bbls = 0;
+     mmio_times = 0;
+     infinite_loop_exec = 0;
++    fuzzer_injected_irqs = 0;
+     run_index++;
+     
+     collect_streams();
+@@ -333,6 +339,9 @@ bool arm_exec_bbl(hw_addr pc,uint32_t id)
+ 
+         bool insert  = insert_nvic_intc(irqs[index + ARMV7M_EXCP_SYSTICK -1]);
+         
++        if(insert && irqs[index + ARMV7M_EXCP_SYSTICK - 1] != ARMV7M_EXCP_SYSTICK)
++            fuzzer_injected_irqs++;
++
+         #ifdef DBG
+         if(insert)
+             fprintf(flog,"%d->insert round robin irq:%d\n",run_index,irqs[index + ARMV7M_EXCP_SYSTICK -1]);
+@@ -353,6 +362,7 @@ bool arm_exec_bbl(hw_addr pc,uint32_t id)
+     #endif
+     __afl_area_ptr[id] ++;
+     nommio_executed_bbls++;
++    total_executed_bbls++;
+ 
+     return false;
+ }
+diff --git a/framework/src/simulator/simulator.h b/framework/src/simulator/simulator.h
+index 851564275..6528c9c34 100755
+--- a/framework/src/simulator/simulator.h
++++ b/framework/src/simulator/simulator.h
+@@ -46,6 +46,7 @@ extern FILE *f_crash_log;
+ extern FILE *f_irq_log;
+ 
+ extern uint64_t nommio_executed_bbls;
++extern uint64_t total_executed_bbls;
+ extern uint64_t max_bbl_exec;
+ extern uint64_t mmio_times;
+ 

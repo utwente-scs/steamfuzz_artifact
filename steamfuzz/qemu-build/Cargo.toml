@@ -1,0 +1,10 @@
+[package]
+name = "qemu-build"
+version = "0.1.0"
+authors = ["Simon Wörner <git@simon-woerner.de>"]
+edition = "2021"
+
+[dependencies]
+bindgen = { git = "https://github.com/SWW13/rust-bindgen.git", branch = "hoedur-llvm16" }
+json = "0.12.4"
+shell-words = "1.1.0"

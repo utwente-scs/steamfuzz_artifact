@@ -1,0 +1,19 @@
+# gen symbols.txt
+for d in FirmBench/*/binary/*.elf;  uv run frb gen-symbols "$d"; end
+# copy the Hoedur files into the main folder of each sample
+cd FirmBench
+for d in */; cp $d/binary/*.elf $d 2>/dev/null; \
+            cp $d/binary/valid_basic_blocks.txt $d 2>/dev/null; \
+            cp $d/fuzzers/Hoedur/config.yml $d 2>/dev/null; \
+            cp $d/fuzzers/Hoedur/config.yml $d/config_steamfuzz.yml 2>/dev/null; \
+            cp $d/fuzzers/Fuzzware/config.yml $d/config_aidfuzzer.yml 2>/dev/null; \
+            cp $d/bug_descriptor.c $d 2>/dev/null; \
+            end
+# remove other files
+for d in */; rm -rf $d/*/; end
+# create bins
+for d in */; for f in $d/*.elf; arm-none-eabi-objcopy -O binary $f (string replace -r '\.elf$' .bin $f); end; end
+
+# Manual
+config_steamfuzz.yml: round-robin -> fuzzed, on_sleep -> false
+config.yml: round-robin -> fuzzed
