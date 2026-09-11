@@ -19,7 +19,7 @@ RUN apt install -qy \
 
 # install Rust
 USER user
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain 1.88.0
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain stable
 ENV PATH="${PATH}:/home/user/.cargo/bin"
 ENV LD_LIBRARY_PATH="/home/user/.cargo/bin/"
 
