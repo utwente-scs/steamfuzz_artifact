@@ -1,0 +1,12 @@
+# A profile selects which experiment is active and how it is run.
+# Set the active profile in `active_profile.txt`.
+steamfuzz:
+  01-main:
+    runs: 5
+    cores_per_run: 1
+    duration: "24h"
+subset:
+  02-subset:
+    runs: 5
+    cores_per_run: 1
+    duration: "24h"

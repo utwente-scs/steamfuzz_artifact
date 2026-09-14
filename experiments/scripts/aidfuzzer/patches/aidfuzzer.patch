@@ -1,0 +1,246 @@
+diff --git a/framework/header/fuzzer.h b/framework/header/fuzzer.h
+index 9e4cced0d..de89ae4dc 100755
+--- a/framework/header/fuzzer.h
++++ b/framework/header/fuzzer.h
+@@ -42,7 +42,7 @@ typedef int64_t  s64;
+ #define MAX_FUZZWARE_MODEL 200
+ #define MAX_CRASH_SAVE 20
+ 
+-// #define RUN_IN_DOCKER
++#define RUN_IN_DOCKER
+ 
+ #define NUM_QUEUE_STREAMS 0x1000000
+ #define SHARE_FUZZDATA_SIZE 1 << 30
+@@ -178,6 +178,9 @@ typedef struct _EXIT_INFO
+         u32 exit_mmio_addr;
+         u32 mmio_len;
+     } stream_info;
++    u64 executed_bbls;
++    u64 mmio_reads;
++    u64 injected_irqs;
+ } __attribute__((packed)) EXIT_INFO;
+ 
+ 
+diff --git a/framework/src/fuzzer/iofuzzer.cpp b/framework/src/fuzzer/iofuzzer.cpp
+index ff02529d1..3be89c0de 100644
+--- a/framework/src/fuzzer/iofuzzer.cpp
++++ b/framework/src/fuzzer/iofuzzer.cpp
+@@ -716,6 +716,10 @@ void fuzz_runonce(FuzzState *state)
+     {
+       printf("pc %x queue %x not found stream %x\n",exit_info.exit_pc,q->cksum,exit_info.stream_info.exit_stream_id);
+     }
++    printf("  BBs executed: %lu  IRQs injected: %lu  MMIO reads: %lu\n",
++           (unsigned long)exit_info.executed_bbls,
++           (unsigned long)exit_info.injected_irqs,
++           (unsigned long)exit_info.mmio_reads);
+     update_exit_info(state,&exit_info);
+     if(f)
+       fprintf(f,"%lu %d\n",q->create_time,state->total_unique_bbls);
+@@ -723,6 +727,50 @@ void fuzz_runonce(FuzzState *state)
+     if(terminate_next)
+       fuzzer_terminate(state);
+   }
++
++  // Also run crashing inputs from the corpus.
++  // Each crash entry has its own pool sidecar (pool_<cksum>.bin) that must be
++  // loaded before running the entry, because the stream pool at crash time may
++  // differ from the shared queue pool.
++  {
++    DIR* crash_dir_handle;
++    struct dirent* crash_dir_entry;
++    char crash_filename[PATH_MAX];
++    char crash_pool_filename[PATH_MAX];
++    u32 crash_cksum;
++
++    crash_dir_handle = opendir(state->dir_info.crash_queue_dir.c_str());
++    if (crash_dir_handle != NULL) {
++      while ((crash_dir_entry = readdir(crash_dir_handle)) != NULL) {
++        if (crash_dir_entry->d_type == DT_REG && strstr(crash_dir_entry->d_name, "queue_")) {
++          sscanf(crash_dir_entry->d_name, "queue_%x", &crash_cksum);
++          sprintf(crash_pool_filename, "%s/pool_%x.bin",
++                  state->dir_info.crash_queue_dir.c_str(), crash_cksum);
++          load_crash_pool(state, crash_pool_filename);
++          sprintf(crash_filename, "%s/%s",
++                  state->dir_info.crash_queue_dir.c_str(), crash_dir_entry->d_name);
++          queue_entry *q = load_queue(state, crash_filename);
++          EXIT_INFO exit_info = run_input(state, q, &simulator);
++          if (exit_info.exit_code == EXIT_DBG_STREAM_NOTFOUND) {
++            printf("pc %x queue %x not found stream %x\n",
++                   exit_info.exit_pc, q->cksum, exit_info.stream_info.exit_stream_id);
++          }
++          printf("  [crash] BBs executed: %lu  IRQs injected: %lu  MMIO reads: %lu\n",
++                 (unsigned long)exit_info.executed_bbls,
++                 (unsigned long)exit_info.injected_irqs,
++                 (unsigned long)exit_info.mmio_reads);
++          update_exit_info(state, &exit_info);
++          if (f)
++            fprintf(f, "%lu %d\n", q->create_time, state->total_unique_bbls);
++          show_stat(state);
++          if (terminate_next)
++            fuzzer_terminate(state);
++        }
++      }
++      closedir(crash_dir_handle);
++    }
++  }
++
+   if(f)
+     fclose(f);
+ }
+@@ -757,7 +805,7 @@ void init_dir(FuzzState *state)
+   state->dir_info.crash_queue_dir = state->dir_info.corpus_dir + "/crash/";
+ 
+   state->dir_info.simulator_log_dir = state->dir_info.corpus_dir + "/log/";
+-  state->dir_info.state_dump_model_dir = state->dir_info.fuzzer_dir + "/model/";
++  state->dir_info.state_dump_model_dir = state->dir_info.corpus_dir + "/model/";
+ 
+   state->file_info.mmio_model_file = state->dir_info.state_dump_model_dir + MMIO_MODEL_FILENAME;
+   state->file_info.realtime_coverage_bin = state->dir_info.corpus_dir + "/coverage.bin";
+diff --git a/framework/src/simulator/irq.cpp b/framework/src/simulator/irq.cpp
+index 1fe1b3d77..58c010d94 100755
+--- a/framework/src/simulator/irq.cpp
++++ b/framework/src/simulator/irq.cpp
+@@ -21,6 +21,7 @@ IRQ_N_MODEL* models[MAX_NVIC_IRQ];
+ 
+ vector<irq_val> enabled_irqs;
+ uint64_t idle_count = 0;
++uint64_t fuzzer_injected_irqs = 0;
+ 
+ map<irq_val,uint32_t> snapshot_enabled_irq;
+ 
+@@ -153,13 +154,7 @@ void irq_set_isr(irq_val irq, hw_addr vec_addr)
+         set_vec_watchpoint(irq,vec_addr);
+ 
+ 
+-    #ifdef RUN_IN_DOCKER
+-    if(models[irq]->state->find(new_id) == models[irq]->state->end())
+-    {
+-         printf("unable to find irq model for id %x use old one\n",isr);
+-        return;
+-    }
+-    #else
++
+     if(!is_id_modeled(irq,new_id))
+     {
+         dump_prcoess_load_model(irq,new_id,isr, models);
+@@ -170,7 +165,6 @@ void irq_set_isr(irq_val irq, hw_addr vec_addr)
+         printf("unable to find irq model for id %x\n",isr);
+         terminate_simulation();
+     }
+-    #endif
+ 
+     switch_state(current_id,new_id, irq);  
+ 
+@@ -310,6 +304,7 @@ void irq_on_mem_access(int irq,hw_addr addr)
+         reset_irq_mem_access(state);
+         if(insert_irq) 
+         {
++            fuzzer_injected_irqs++;
+             #ifdef DBG
+             fprintf(flog,"%d->insert mem access irq %d\n",run_index,irq);
+             #endif
+@@ -350,6 +345,7 @@ void irq_on_idel(int skip_count)
+         
+         if(insert_irq)
+         {
++            fuzzer_injected_irqs++;
+             reset_irq_mem_access(state);
+             #ifdef DBG
+         
+@@ -384,13 +380,6 @@ void irq_on_unsolved_func_ptr_write(int irq, uint32_t addr, uint32_t val)
+         new_id ^= hash_32_ext(it->second);
+     }
+     
+-    #ifdef RUN_IN_DOCKER
+-    if(models[irq]->state->find(new_id) == models[irq]->state->end())
+-    {
+-        printf("unable to find irq model for id %x use old one\n",isr);
+-        return;
+-    }
+-    #else
+     if(models[irq]->state->find(new_id) == models[irq]->state->end())
+     {
+         printf("resolved irq %d addr %x value %x\n",irq,addr,val);
+@@ -402,7 +391,6 @@ void irq_on_unsolved_func_ptr_write(int irq, uint32_t addr, uint32_t val)
+         printf("unable to find irq model for id %x use old model\n",new_id);
+         terminate_simulation();
+     }
+-    #endif
+     IRQ_N_STATE *new_state = (*models[irq]->state)[new_id];
+ 
+     new_state->func_resolved_ptrs->clear();
+diff --git a/framework/src/simulator/irq.h b/framework/src/simulator/irq.h
+index f96cca8df..4e844f6fa 100755
+--- a/framework/src/simulator/irq.h
++++ b/framework/src/simulator/irq.h
+@@ -51,4 +51,6 @@ IRQ_N_STATE *get_void_state();
+ void add_memory_access_watchpoint(int irq, uint32_t addr, hw_addr isr);
+ void add_unsolved_func_ptr(int irq, uint32_t addr, hw_addr isr);
+ void add_dependency_func_ptr(int irq,uint32_t addr, hw_addr isr);
++
++extern uint64_t fuzzer_injected_irqs;
+ #endif
+\ No newline at end of file
+diff --git a/framework/src/simulator/simulator.cpp b/framework/src/simulator/simulator.cpp
+index 0ed6e3159..cc90073ac 100644
+--- a/framework/src/simulator/simulator.cpp
++++ b/framework/src/simulator/simulator.cpp
+@@ -53,6 +53,7 @@ FILE *f_crash_log;
+ FILE *f_irq_log;
+ 
+ uint64_t nommio_executed_bbls;
++uint64_t total_executed_bbls;
+ uint64_t max_bbl_exec;
+ uint64_t infinite_loop_exec;
+ uint64_t mmio_times;
+@@ -93,6 +94,9 @@ CMD_INFO exit_with_code_get_cmd()
+     #endif
+ 
+     exit_info.unique_bbls = total_unique_bbls.size();
++    exit_info.executed_bbls = total_executed_bbls;
++    exit_info.mmio_reads = mmio_times;
++    exit_info.injected_irqs = fuzzer_injected_irqs;
+     write(fd_to_fuzzer , &exit_info,sizeof(EXIT_INFO));   
+     do
+     {
+@@ -130,8 +134,10 @@ void start_new()
+ {
+     arm_restore_snapshot(new_snap);
+     nommio_executed_bbls = 0;
++    total_executed_bbls = 0;
+     mmio_times = 0;
+     infinite_loop_exec = 0;
++    fuzzer_injected_irqs = 0;
+     run_index++;
+     
+     collect_streams();
+@@ -333,6 +339,9 @@ bool arm_exec_bbl(hw_addr pc,uint32_t id)
+ 
+         bool insert  = insert_nvic_intc(irqs[index + ARMV7M_EXCP_SYSTICK -1]);
+         
++        if(insert && irqs[index + ARMV7M_EXCP_SYSTICK - 1] != ARMV7M_EXCP_SYSTICK)
++            fuzzer_injected_irqs++;
++
+         #ifdef DBG
+         if(insert)
+             fprintf(flog,"%d->insert round robin irq:%d\n",run_index,irqs[index + ARMV7M_EXCP_SYSTICK -1]);
+@@ -353,6 +362,7 @@ bool arm_exec_bbl(hw_addr pc,uint32_t id)
+     #endif
+     __afl_area_ptr[id] ++;
+     nommio_executed_bbls++;
++    total_executed_bbls++;
+ 
+     return false;
+ }
+diff --git a/framework/src/simulator/simulator.h b/framework/src/simulator/simulator.h
+index 851564275..6528c9c34 100755
+--- a/framework/src/simulator/simulator.h
++++ b/framework/src/simulator/simulator.h
+@@ -46,6 +46,7 @@ extern FILE *f_crash_log;
+ extern FILE *f_irq_log;
+ 
+ extern uint64_t nommio_executed_bbls;
++extern uint64_t total_executed_bbls;
+ extern uint64_t max_bbl_exec;
+ extern uint64_t mmio_times;
+ 

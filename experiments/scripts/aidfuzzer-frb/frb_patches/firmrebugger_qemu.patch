@@ -1,0 +1,67 @@
+diff --git a/qemu-7.2.0/accel/tcg/meson.build b/qemu-7.2.0/accel/tcg/meson.build
+index 5d5dd5be1..6b9f9d471 100644
+--- a/qemu-7.2.0/accel/tcg/meson.build
++++ b/qemu-7.2.0/accel/tcg/meson.build
+@@ -8,6 +8,7 @@ tcg_ss.add(files(
+   'tcg-runtime.c',
+   'translate-all.c',
+   'translator.c',
++  'firmrebugger.c',
+ ))
+ tcg_ss.add(when: 'CONFIG_USER_ONLY', if_true: files('user-exec.c'))
+ tcg_ss.add(when: 'CONFIG_SOFTMMU', if_false: files('user-exec-stub.c'))
+diff --git a/qemu-7.2.0/accel/tcg/tcg-runtime.c b/qemu-7.2.0/accel/tcg/tcg-runtime.c
+index efb7159e3..e7393d492 100644
+--- a/qemu-7.2.0/accel/tcg/tcg-runtime.c
++++ b/qemu-7.2.0/accel/tcg/tcg-runtime.c
+@@ -226,3 +226,8 @@ void HELPER(exit_atomic)(CPUArchState *env)
+ {
+     cpu_loop_exit_atomic(env_cpu(env), GETPC());
+ }
++
++//Firmrebugger
++void HELPER(firmrebugger_helper)(CPUArchState *env, target_ulong addr) {
++  firmrebugger_init_config(env, addr);
++}
+diff --git a/qemu-7.2.0/accel/tcg/tcg-runtime.h b/qemu-7.2.0/accel/tcg/tcg-runtime.h
+index 00a8f8091..da0813aa7 100644
+--- a/qemu-7.2.0/accel/tcg/tcg-runtime.h
++++ b/qemu-7.2.0/accel/tcg/tcg-runtime.h
+@@ -14,6 +14,8 @@ DEF_HELPER_FLAGS_2(sar_i64, TCG_CALL_NO_RWG_SE, s64, s64, s64)
+ 
+ DEF_HELPER_FLAGS_2(mulsh_i64, TCG_CALL_NO_RWG_SE, s64, s64, s64)
+ DEF_HELPER_FLAGS_2(muluh_i64, TCG_CALL_NO_RWG_SE, i64, i64, i64)
++//firmrebugger
++DEF_HELPER_FLAGS_2(firmrebugger_helper, TCG_CALL_NO_WG, void, env, tl)
+ 
+ DEF_HELPER_FLAGS_2(clz_i32, TCG_CALL_NO_RWG_SE, i32, i32, i32)
+ DEF_HELPER_FLAGS_2(ctz_i32, TCG_CALL_NO_RWG_SE, i32, i32, i32)
+diff --git a/qemu-7.2.0/accel/tcg/translator.c b/qemu-7.2.0/accel/tcg/translator.c
+index 261aca9f9..92aec3c14 100644
+--- a/qemu-7.2.0/accel/tcg/translator.c
++++ b/qemu-7.2.0/accel/tcg/translator.c
+@@ -88,6 +88,9 @@ void translator_loop(CPUState *cpu, TranslationBlock *tb, int max_insns,
+         if (plugin_enabled) {
+             plugin_gen_insn_start(cpu, db);
+         }
++        //firmrebugger
++        TCGv pc_next_v = tcg_const_tl(db->pc_next);
++        gen_helper_firmrebugger_helper(cpu_env,pc_next_v);
+ 
+         /* Disassemble one instruction.  The translate_insn hook should
+            update db->pc_next and db->is_jmp to indicate what should be
+diff --git a/qemu-7.2.0/meson.build b/qemu-7.2.0/meson.build
+index 2cb54636e..67f96ed22 100644
+--- a/qemu-7.2.0/meson.build
++++ b/qemu-7.2.0/meson.build
+@@ -3406,7 +3406,10 @@ foreach target : target_dirs
+     arch_deps += hw.dependencies()
+ 
+     arch_srcs += config_devices_h[target]
++    link_args += ['-I/home/user/xxfuzzer/tinycc/']
++    link_args += ['-L/home/user/xxfuzzer/tinycc/']
+     link_args += ['@block.syms', '@qemu.syms']
++    link_args += ['-ltcc', '-ldl']
+   else
+     abi = config_target['TARGET_ABI_DIR']
+     target_type='user'
