@@ -13,7 +13,7 @@ make
 docker
 ```
 
-## instalation
+## Instalation
 
 Move (or copy) the fuzzer into the experiment dir 
 ```
@@ -31,8 +31,8 @@ python3 install.py
 
 We present three three options for recreating the plots:
 1. Recreate the plots using the data from our fuzzing runs (should only take a couple of minutes on any system)
-2. Run the fuzzing and evaluation pipeline over a subset of 4 samples (Takes about 110 CPU days)
-3. Run the full fuzzing and evaluation pipeline (takes about 1100 CPU days).
+2. Run the full fuzzing and evaluation pipeline (takes about 1100 CPU days).
+3. Run the fuzzing and evaluation pipeline over a subset of 4 samples (Takes about 110 CPU days)
 
 If you run multiple options above, you need to clean the data in between runs by using the following script:
 ```
@@ -79,11 +79,17 @@ echo "localhost 100" > experiment-config/available_hosts.txt
 ```
 
 
-Write profile to `experiments/experiment-config/active_profile.txt` (`steamfuzz`, runs over all 40 samples, or `subset`, which runs 4 samples.).
+Write profile to `experiments/experiment-config/active_profile.txt` (`steamfuzz`, runs over all 40 samples, or `subset`, which runs 4 samples by default.).
+
 Example:
 ```
 echo "steamfuzz" > experiment-config/active_profile.txt
 ```
+
+> If you want to choose a custom subset of samples to run you can edit the file `scripts/eval_data_processing/config.py`.
+> From line 191 onwards you can see the samples present in the `02-subset` run.
+> Add or remove entries however you wish (make sure you add/remove from `target`, `include_in_paper`, and `ablation_in_paper`).
+> All valid target names are present in the `01-main` entry above (starting at line 71).
 
 Run the experiments (it is recommended to run this in `tmux`, so you can log out of the server):
 
@@ -98,7 +104,7 @@ Run FirmRebugger for bug evaluation:
 python3 ./run_firmrebugger.py
 ```
 
-Create plots:
+Process fuzzing data and create plots:
 
 ```
 python3 ./compute_metrics.py
