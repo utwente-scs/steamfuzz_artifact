@@ -135,3 +135,23 @@ If you ran the experiments on a server with ssh, you can simply retrieve the res
 scp -r <server>:steamfuzz_artifact/experiments/scripts/eval_data_processing/charts/subset/ .
 scp <server>:steamfuzz_artifact/experiments/02-subset/results/table_corpus_eval.tex  .
 ```
+
+
+## Running SteamFuzz locally
+
+If you simply want to run SteamFuzz without the full evaluation setup, you can also run it locally.
+```
+sudo apt install -y clang curl git libfdt-dev libglib2.0-dev libpixman-1-dev libxcb-shape0-dev libxcb-xfixes0-dev ninja-build patchelf pkg-config python3-psutil zstd make
+cd steamfuzz/
+cargo install --path hoedur/ --bin hoedur-arm --features no-interval-mutation
+cp  ~/.cargo/bin/hoedur-arm ~/.cargo/bin/steamfuzz
+sudo cp target/release/libqemu-system-arm.release.so /usr/lib/
+```
+
+Run the fuzzer:
+```
+cp -r ../experiments/targets/FirmBench/3Dprinter/ .
+steamfuzz --config 3Dprinter/config_steamfuzz.yml fuzz
+```
+
+For further commands, use `--help` or look at the [Hoedur readme](https://github.com/fuzzware-fuzzer/hoedur).
