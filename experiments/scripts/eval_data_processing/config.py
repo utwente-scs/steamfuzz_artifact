@@ -201,20 +201,20 @@ EXPERIMENTS = {
         # fuzzing targets
         'target': [
             'Aidfuzzer/bcn_rfd_ncp',
-            'Aidfuzzer/blehci',
+            'Aidfuzzer/coord_ncp',
             'FirmBench/3Dprinter',
             'FirmBench/riot_gnrc_networking',
         ],
         # selected targets for ablation study (paper / appendix filter)
         'include_in_paper': [
             'Aidfuzzer/bcn_rfd_ncp',
-            'Aidfuzzer/blehci',
+            'Aidfuzzer/coord_ncp',
             'FirmBench/3Dprinter',
             'FirmBench/riot_gnrc_networking',
         ],
     'ablation_in_paper': [
         'Aidfuzzer/bcn_rfd_ncp',
-        'Aidfuzzer/blehci',
+        'Aidfuzzer/coord_ncp',
         'FirmBench/3Dprinter',
         'FirmBench/riot_gnrc_networking',
     ],

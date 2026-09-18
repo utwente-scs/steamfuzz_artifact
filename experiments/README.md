@@ -11,6 +11,7 @@ sudo
 rsync
 make
 docker
+git
 ```
 
 ## Instalation
@@ -25,6 +26,16 @@ Install `steamfuzz`, `hoedur`, and `aidfuzzer` (~30GB disk usage):
 ```
 cd experiments
 python3 install.py
+```
+
+Set up host for AFL (used by AidFuzzer)
+```
+sudo ./scripts/fuzzware/set_limits_and_prepare_afl.sh
+``` 
+
+Make it a git repo so you can easily remove data between runs.
+```
+git init . && git add . && git commit -m "init"
 ```
 
 ## Reproducing the experiments.
@@ -72,6 +83,7 @@ We have instructions to run the full experiments, or an a subset.
 
 
 Write your host and available cores to `experiments/experiment-config/available_hosts.txt`.
+If you have 8 cores and 16 threads, write 16.
 
 Example:
 ```
@@ -117,4 +129,9 @@ After recreating the plots or running the fuzzing experiments, you can find the 
 - All plots are created in `experiments/scripts/eval_data_processing/charts/<profile>/` (i.e., `experiments/scripts/eval_data_processing/charts/<steamfuzz or subset>/`)
 - Table 1 can be found in `experiments/<experiment>/results/table_corpus_eval.tex` (i.e., `experiments/<01-main or 02-subset>/results/table_corpus_eval.tex`).
 
+If you ran the experiments on a server with ssh, you can simply retrieve the results with `scp`:
 
+```
+scp -r <server>:steamfuzz_artifact/experiments/scripts/eval_data_processing/charts/subset/ .
+scp <server>:steamfuzz_artifact/experiments/02-subset/results/table_corpus_eval.tex  .
+```
